@@ -1,27 +1,35 @@
-# The FROM will be replaced when building in OpenShift
-FROM rhel7/rhel
+# This Dockerfile is used to build an image containing basic stuff to be used as a Jenkins slave build node.
+# It is based on instructions from https://wiki.jenkins-ci.org/display/JENKINS/Docker+Plugin and Dockerfile 
+# from https://hub.docker.com/r/evarga/jenkins-slave/
 
-MAINTAINER Siamak Sadeghianfar <ssadeghi@redhat.com>
+FROM centos:latest
+MAINTAINER Stefan Lehmann <stefan.lehmann@unic.com>
 
-# Install headless Java
-USER root
-RUN yum clean all && \
-    yum-config-manager --disable rhel* 1>/dev/null && \
-    yum-config-manager --enable rhel-7-server-rpms && \
-    yum-config-manager --enable rhel-7-server-ose-3.2-rpms && \
-    export INSTALL_PKGS="nss_wrapper java-1.8.0-openjdk-headless \
-        java-1.8.0-openjdk-devel nss_wrapper gettext tar git" && \
-    yum clean all && \
-    yum install -y --setopt=tsflags=nodocs install $INSTALL_PKGS && \
-    rpm -V $INSTALL_PKGS && \
-    yum clean all && \
+# Install a basic SSH server GIT, UNZIP, LSOF and JDK 8
+RUN yum install -y openssh-server git unzip zip lsof java-1.8.0-openjdk-headless docker && yum clean all
+# update sshd settings, create jenkins user, set jenkins user pw, generate ssh keys
+RUN sed -i 's|session    required     pam_loginuid.so|session    optional     pam_loginuid.so|g' /etc/pam.d/sshd \
+    && mkdir -p /var/run/sshd \
+    && useradd -u 1000 -m -s /bin/bash jenkins \
+    && echo "jenkins:jenkins" | chpasswd \
+    && /usr/bin/ssh-keygen -A \
+    && echo export JAVA_HOME="/`alternatives  --display java | grep best | cut -d "/" -f 2-6`" >> /etc/environment
+
+# install docker compose
+RUN curl -L https://github.com/docker/compose/releases/download/1.9.0/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose \
+    && chmod +x /usr/local/bin/docker-compose
+
+# Standard SSH port
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]
+
     mkdir -p /var/lib/jenkins && \
-    chown -R 1001:0 /var/lib/jenkins && \
+    chown -R 1000:0 /var/lib/jenkins && \
     chmod -R g+w /var/lib/jenkins
 
 # Copy the entrypoint
 COPY configuration/* /var/lib/jenkins/
-USER 1001
+USER 1000
 
 # Run the JNLP client by default
 # To use swarm client, specify "/var/lib/jenkins/run-swarm-client" as Command
