@@ -1,28 +1,40 @@
-# The FROM will be replaced when building in OpenShift
-FROM rhel7/rhel
+# This Dockerfile is used to build an image containing basic stuff to be used as a Jenkins slave build node.
+FROM ubuntu:trusty
+MAINTAINER Ervin Varga <ervin.varga@gmail.com>
 
-MAINTAINER Siamak Sadeghianfar <ssadeghi@redhat.com>
+# In case you need proxy
+#RUN echo 'Acquire::http::Proxy "http://127.0.0.1:8080";' >> /etc/apt/apt.conf
 
-# Install headless Java
-USER root
-RUN yum clean all && \
-    yum-config-manager --disable rhel* 1>/dev/null && \
-    yum-config-manager --enable rhel-7-server-rpms && \
-    yum-config-manager --enable rhel-7-server-ose-3.2-rpms && \
-    export INSTALL_PKGS="java-1.8.0-openjdk-headless \
-        java-1.8.0-openjdk-devel gettext tar git" && \
-    yum clean all && \
-    yum install -y --setopt=tsflags=nodocs install $INSTALL_PKGS && \
-    rpm -V $INSTALL_PKGS && \
-    yum clean all && \
-    mkdir -p /var/lib/jenkins && \
-    chown -R 1001:0 /var/lib/jenkins && \
-    chmod -R g+w /var/lib/jenkins
+# Add locales after locale-gen as needed
+# Upgrade packages on image
+# Preparations for sshd
+RUN locale-gen en_US.UTF-8 &&\
+    apt-get -q update &&\
+    DEBIAN_FRONTEND="noninteractive" apt-get -q upgrade -y -o Dpkg::Options::="--force-confnew" --no-install-recommends &&\
+    DEBIAN_FRONTEND="noninteractive" apt-get -q install -y -o Dpkg::Options::="--force-confnew" --no-install-recommends openssh-server &&\
+    apt-get -q autoremove &&\
+    apt-get -q clean -y && rm -rf /var/lib/apt/lists/* && rm -f /var/cache/apt/*.bin &&\
+    sed -i 's|session    required     pam_loginuid.so|session    optional     pam_loginuid.so|g' /etc/pam.d/sshd &&\
+    mkdir -p /var/run/sshd
 
-# Copy the entrypoint
-COPY configuration/* /var/lib/jenkins/
-USER 1001
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
 
-# Run the JNLP client by default
-# To use swarm client, specify "/var/lib/jenkins/run-swarm-client" as Command
-ENTRYPOINT ["/var/lib/jenkins/run-jnlp-client"]
+# Install JDK 8 (latest edition)
+RUN apt-get -q update &&\
+    DEBIAN_FRONTEND="noninteractive" apt-get -q install -y -o Dpkg::Options::="--force-confnew" --no-install-recommends software-properties-common &&\
+    add-apt-repository -y ppa:openjdk-r/ppa &&\
+    apt-get -q update &&\
+    DEBIAN_FRONTEND="noninteractive" apt-get -q install -y -o Dpkg::Options::="--force-confnew" --no-install-recommends openjdk-8-jre-headless &&\
+    apt-get -q clean -y && rm -rf /var/lib/apt/lists/* && rm -f /var/cache/apt/*.bin
+
+# Set user jenkins to the image
+RUN useradd -m -d /home/jenkins -s /bin/sh jenkins &&\
+    echo "jenkins:jenkins" | chpasswd
+
+# Standard SSH port
+EXPOSE 22
+
+# Default command
+CMD ["/usr/sbin/sshd", "-D"]
